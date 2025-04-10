@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block title %}Persamaan Non Linear - Kalkulator Matriks{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/non_linear.css') }}">
+{% endblock %}
+
+{% block header %}Persamaan Non Linear (Newton-Raphson){% endblock %}
+
+{% block content %}
+<div class="calculator-container">
+    <!-- Input Section -->
+    <div class="input-section">
+        <h2>Masukkan Persamaan</h2>
+        <form id="nonLinearForm">
+            <div class="equation-input">
+                <div class="input-group">
+                    <label for="equation">f(x) =</label>
+                    <input type="text" id="equation" required placeholder="Contoh: x**2 - 4" class="equation-field">
+                </div>
+                <div class="equation-help">
+                    <h4>Panduan Input:</h4>
+                    <ul>
+                        <li>Gunakan x sebagai variabel</li>
+                        <li>** untuk pangkat (contoh: x**2)</li>
+                        <li>* untuk perkalian</li>
+                        <li>Fungsi: sin(x), cos(x), exp(x), log(x)</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="parameters">
+                <div class="param-group">
+                    <label for="initialGuess">Tebakan Awal (x₀):</label>
+                    <input type="number" id="initialGuess" required step="any" value="1" class="param-input">
+                </div>
+                <div class="param-group">
+                    <label for="maxIterations">Maksimum Iterasi:</label>
+                    <input type="number" id="maxIterations" min="1" max="1000" value="50" class="param-input">
+                </div>
+                <div class="param-group">
+                    <label for="tolerance">Toleransi Error:</label>
+                    <input type="number" id="tolerance" min="0.0000001" max="1" value="0.0001" step="0.0000001" class="param-input">
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary calculate-btn">
+                <i class="fas fa-calculator"></i> Hitung Akar
+            </button>
+        </form>
+    </div>
+
+    <!-- Result Section -->
+    <div class="result-section" id="resultSection">
+        <h2>Hasil Perhitungan</h2>
+        <div class="result-container">
+            <div class="result-box">
+                <div class="result-content">
+                    <div class="equation-display">
+                        <h3>Persamaan yang Digunakan:</h3>
+                        <div id="equationDisplay"></div>
+                    </div>
+                    <div class="root-box">
+                        <h3>Akar yang Ditemukan:</h3>
+                        <div id="rootValue"></div>
+                    </div>
+                    <div class="verification-box">
+                        <h3>Verifikasi:</h3>
+                        <div id="verificationValue"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="convergence-box" id="convergenceInfo"></div>
+
+            <div class="iterations-box">
+                <h3>Proses Iterasi:</h3>
+                <div id="iterationsTable"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="action-buttons">
+    <a href="{{ url_for('home') }}" class="btn btn-secondary">
+        <i class="fas fa-arrow-left"></i> Kembali ke Menu Utama
+    </a>
+    <button type="button" class="btn btn-danger" onclick="clearAll()">
+        <i class="fas fa-trash"></i> Bersihkan
+    </button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function displayResults(data) {
+    const equation = document.getElementById('equation').value;
+    
+    // Display equation
+    document.getElementById('equationDisplay').innerHTML = `
+        <div class="math-expression">f(x) = ${equation}</div>
+    `;
+    
+    // Display root
+    document.getElementById('rootValue').innerHTML = `
+        <div class="value-display">x = ${data.root.toFixed(6)}</div>
+    `;
+    
+    // Display verification
+    document.getElementById('verificationValue').innerHTML = `
+        <div class="value-display">
+            f(${data.root.toFixed(6)}) = ${data.iterations[data.iterations.length-1].fx.toFixed(6)}
+        </div>
+    `;
+    
+    // Display convergence information
+    document.getElementById('convergenceInfo').innerHTML = `
+        <div class="info-card ${data.converged ? 'success' : 'warning'}">
+            <h3>${data.converged ? 'Konvergen' : 'Tidak Konvergen'}</h3>
+            <p>Jumlah Iterasi: ${data.iterationCount}</p>
+            <p>Error Akhir: ${data.error.toFixed(6)}</p>
+        </div>
+    `;
+    
+    // Create iterations table
+    const tableHTML = `
+        <div class="iterations-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Iterasi</th>
+                        <th>xᵢ</th>
+                        <th>f(xᵢ)</th>
+                        <th>f'(xᵢ)</th>
+                        <th>xᵢ₊₁ = xᵢ - f(xᵢ)/f'(xᵢ)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.iterations.map((iter, index) => {
+                        const nextX = index < data.iterations.length - 1 ? 
+                            data.iterations[index + 1].x : data.root;
+                        return `
+                            <tr>
+                                <td>${iter.iteration}</td>
+                                <td>${iter.x.toFixed(6)}</td>
+                                <td>${iter.fx.toFixed(6)}</td>
+                                <td>${iter.dfx.toFixed(6)}</td>
+                                <td class="step-calculation">
+                                    ${nextX.toFixed(6)} = ${iter.x.toFixed(6)} - 
+                                    <div class="fraction">
+                                        <span class="numerator">${iter.fx.toFixed(6)}</span>
+                                        <span class="denominator">${iter.dfx.toFixed(6)}</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    document.getElementById('iterationsTable').innerHTML = tableHTML;
+}
+
+document.getElementById('nonLinearForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const values = {
+        equation: document.getElementById('equation').value,
+        initialGuess: document.getElementById('initialGuess').value,
+        maxIterations: document.getElementById('maxIterations').value,
+        tolerance: document.getElementById('tolerance').value
+    };
+
+    try {
+        const response = await fetch('/api/non-linear', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(values),
+        });
+
+        const data = await response.json();
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+
+        document.getElementById('resultSection').classList.add('show');
+        displayResults(data);
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Terjadi kesalahan dalam perhitungan');
+    }
+});
+
+function clearAll() {
+    document.getElementById('equation').value = '';
+    document.getElementById('initialGuess').value = '1';
+    document.getElementById('maxIterations').value = '50';
+    document.getElementById('tolerance').value = '0.0001';
+    
+    document.getElementById('resultSection').classList.remove('show');
+    document.getElementById('finalResult').innerHTML = '';
+    document.getElementById('convergenceInfo').innerHTML = '';
+    document.getElementById('iterationsTable').innerHTML = '';
+}
+</script>
+{% endblock %} 

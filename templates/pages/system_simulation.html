@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+
+{% block title %}Pemodelan dan Simulasi Sistem - Kalkulator Matriks{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/system_simulation.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block header %}Pemodelan dan Simulasi Sistem (Predator-Prey){% endblock %}
+
+{% block content %}
+<div class="calculator-container">
+    <div class="input-section">
+        <h2>Parameter Sistem</h2>
+        <form id="systemForm">
+            <!-- Parameter Model -->
+            <div class="parameter-group">
+                <h3>Parameter Model</h3>
+                <div class="input-group">
+                    <label for="alpha">α (Tingkat pertumbuhan prey):</label>
+                    <input type="number" id="alpha" step="0.01" value="1.0" required>
+                </div>
+                <div class="input-group">
+                    <label for="beta">β (Tingkat predasi):</label>
+                    <input type="number" id="beta" step="0.01" value="0.1" required>
+                </div>
+                <div class="input-group">
+                    <label for="gamma">γ (Tingkat kematian predator):</label>
+                    <input type="number" id="gamma" step="0.01" value="0.075" required>
+                </div>
+                <div class="input-group">
+                    <label for="delta">δ (Efisiensi konversi):</label>
+                    <input type="number" id="delta" step="0.01" value="0.05" required>
+                </div>
+            </div>
+
+            <!-- Kondisi Awal -->
+            <div class="parameter-group">
+                <h3>Kondisi Awal</h3>
+                <div class="input-group">
+                    <label for="initialPrey">Populasi awal prey:</label>
+                    <input type="number" id="initialPrey" value="40" required>
+                </div>
+                <div class="input-group">
+                    <label for="initialPredator">Populasi awal predator:</label>
+                    <input type="number" id="initialPredator" value="9" required>
+                </div>
+            </div>
+
+            <!-- Waktu Simulasi -->
+            <div class="parameter-group">
+                <h3>Waktu Simulasi</h3>
+                <div class="input-group">
+                    <label for="timeStart">Waktu awal:</label>
+                    <input type="number" id="timeStart" value="0" required>
+                </div>
+                <div class="input-group">
+                    <label for="timeEnd">Waktu akhir:</label>
+                    <input type="number" id="timeEnd" value="100" required>
+                </div>
+                <div class="input-group">
+                    <label for="timeSteps">Jumlah langkah:</label>
+                    <input type="number" id="timeSteps" value="1000" required>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-play"></i> Jalankan Simulasi
+            </button>
+        </form>
+    </div>
+
+    <!-- Hasil Simulasi -->
+    <div class="result-section" id="resultSection" style="display: none;">
+        <h2>Hasil Simulasi</h2>
+        
+        <!-- Grafik -->
+        <div class="plots-container">
+            <div class="plot-box">
+                <h3>Populasi vs Waktu</h3>
+                <div class="plot-container">
+                    <canvas id="populationPlot"></canvas>
+                </div>
+            </div>
+            <div class="plot-box">
+                <h3>Phase Space</h3>
+                <div class="plot-container">
+                    <canvas id="phasePlot"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabel Data -->
+        <div class="data-section">
+            <h3>Data Numerik</h3>
+            <div class="table-container" id="dataTable"></div>
+        </div>
+    </div>
+</div>
+
+<div class="action-buttons">
+    <a href="{{ url_for('home') }}" class="btn btn-secondary">
+        <i class="fas fa-arrow-left"></i> Kembali ke Menu Utama
+    </a>
+    <button type="button" class="btn btn-danger" onclick="clearAll()">
+        <i class="fas fa-trash"></i> Bersihkan
+    </button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let populationChart = null;
+let phaseChart = null;
+
+document.getElementById('systemForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const data = {
+        parameters: {
+            alpha: parseFloat(document.getElementById('alpha').value),
+            beta: parseFloat(document.getElementById('beta').value),
+            gamma: parseFloat(document.getElementById('gamma').value),
+            delta: parseFloat(document.getElementById('delta').value)
+        },
+        initialConditions: [
+            parseFloat(document.getElementById('initialPrey').value),
+            parseFloat(document.getElementById('initialPredator').value)
+        ],
+        timePoints: {
+            start: parseFloat(document.getElementById('timeStart').value),
+            end: parseFloat(document.getElementById('timeEnd').value),
+            steps: parseInt(document.getElementById('timeSteps').value)
+        }
+    };
+
+    try {
+        const response = await fetch('/api/system-simulation', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+        if (result.error) {
+            alert(result.error);
+            return;
+        }
+
+        createPlots(result);
+        createDataTable(result);
+        document.getElementById('resultSection').style.display = 'block';
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Terjadi kesalahan dalam simulasi');
+    }
+});
+
+function createPlots(data) {
+    // Destroy existing charts
+    if (populationChart) populationChart.destroy();
+    if (phaseChart) phaseChart.destroy();
+
+    // Population vs Time plot
+    const timeCtx = document.getElementById('populationPlot').getContext('2d');
+    populationChart = new Chart(timeCtx, {
+        type: 'line',
+        data: {
+            labels: data.time,
+            datasets: [{
+                label: 'Prey',
+                data: data.prey,
+                borderColor: '#3498db',
+                fill: false
+            }, {
+                label: 'Predator',
+                data: data.predator,
+                borderColor: '#e74c3c',
+                fill: false
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Populasi vs Waktu'
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Waktu'
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Populasi'
+                    }
+                }
+            }
+        }
+    });
+
+    // Phase Space plot
+    const phaseCtx = document.getElementById('phasePlot').getContext('2d');
+    phaseChart = new Chart(phaseCtx, {
+        type: 'scatter',
+        data: {
+            datasets: [{
+                label: 'Phase Space',
+                data: data.prey.map((x, i) => ({
+                    x: x,
+                    y: data.predator[i]
+                })),
+                borderColor: '#2ecc71',
+                backgroundColor: 'rgba(46, 204, 113, 0.3)'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Phase Space (Prey vs Predator)'
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Prey'
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Predator'
+                    }
+                }
+            }
+        }
+    });
+}
+
+function createDataTable(data) {
+    const container = document.getElementById('dataTable');
+    let html = `
+        <table>
+            <thead>
+                <tr>
+                    <th>Waktu</th>
+                    <th>Prey</th>
+                    <th>Predator</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    // Ambil setiap 100 data point untuk tabel
+    const step = Math.max(1, Math.floor(data.time.length / 10));
+    for (let i = 0; i < data.time.length; i += step) {
+        html += `
+            <tr>
+                <td>${data.time[i].toFixed(2)}</td>
+                <td>${data.prey[i].toFixed(6)}</td>
+                <td>${data.predator[i].toFixed(6)}</td>
+            </tr>
+        `;
+    }
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+function clearAll() {
+    // Reset form
+    document.getElementById('systemForm').reset();
+    
+    // Clear charts
+    if (populationChart) populationChart.destroy();
+    if (phaseChart) phaseChart.destroy();
+    
+    // Hide results
+    document.getElementById('resultSection').style.display = 'none';
+    document.getElementById('dataTable').innerHTML = '';
+}
+</script>
+{% endblock %} 
